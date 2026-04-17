@@ -14,6 +14,20 @@ public class Particle2D
     }
 }
 
+public struct Edge
+{
+    public Vector2 start;
+    public Vector2 end;
+    public Vector2 vector;
+
+    public Edge(Vector2 startVertex, Vector2 endVertex)
+    {
+        this.start = startVertex;
+        this.end = endVertex;
+        this.vector = endVertex - startVertex;  
+    }
+}
+
 public class CPUParticleSystem : MonoBehaviour
 {
     [SerializeField, Range(0, 100000)] int _particleCount;
@@ -29,23 +43,20 @@ public class CPUParticleSystem : MonoBehaviour
     [SerializeField] Color _particleColor = Color.white;
     [SerializeField] Color _previousPositionColor = Color.white;
 
-    Particle2D[] particles;
+    Particle2D[] _particles;
+    Edge[] _rectEdges = new Edge[4];
 
     protected void Start()
     {
+        SetupRectEdges();
         SpawnParticles(_boundingRect, _particleCount);
-    }
-
-    protected void Update()
-    {
-        
     }
 
     protected void FixedUpdate()
     {
-        for (int i = 0; i < particles.Length; i++)
+        for (int i = 0; i < _particles.Length; i++)
         {
-            VerletIntegrate(particles[i]);
+            VerletIntegrate(_particles[i]);
         }
     }
 
@@ -55,10 +66,19 @@ public class CPUParticleSystem : MonoBehaviour
         DrawParticles();
     }
 
+    // Sets up the bounding rect edges in a clockwise order 
+    void SetupRectEdges()
+    {
+        Rect b = _boundingRect;
+        _rectEdges[0] = new Edge(new Vector2(b.xMin, b.yMin), new Vector2(b.xMin, b.yMax)); // left edge
+        _rectEdges[1] = new Edge(new Vector2(b.xMin, b.yMax), new Vector2(b.xMax, b.yMax)); // top edge
+        _rectEdges[2] = new Edge(new Vector2(b.xMax, b.yMax), new Vector2(b.xMax, b.yMin)); // right edge
+        _rectEdges[3] = new Edge(new Vector2(b.xMax, b.yMin), new Vector2(b.xMin, b.yMin)); // bottom edge
+    }
 
     void SpawnParticles(Rect boundingRect, int count)
     {
-        particles = new Particle2D[count];
+        _particles = new Particle2D[count];
 
         for (int i = 0; i < count; i++)
         {
@@ -74,7 +94,7 @@ public class CPUParticleSystem : MonoBehaviour
 
             Vector2 vel = dir.normalized * mag;
 
-            particles[i] = new Particle2D(pos, vel);
+            _particles[i] = new Particle2D(pos, vel);
         }
     }
 
@@ -87,6 +107,34 @@ public class CPUParticleSystem : MonoBehaviour
 
         Vector2 next = current + vel;
 
+
+        // do collision detection (vector reflection)
+        for (int i = 0; i < _rectEdges.Length; i++)
+        {
+            Edge e = _rectEdges[i];
+
+            Line2D line1 = new Line2D(current, next, false);
+            Line2D line2 = new Line2D(e.start, e.end, true);
+
+            Vector2 inter = GeometryUtils.IntersectionPointTwoLines2D(line1, line2, out bool succ);
+
+            if (succ)
+            {
+                Vector2 edge = e.vector;
+                Vector2 edgeNormal = new Vector2(edge.y, -edge.x);
+                edgeNormal = edgeNormal.normalized;
+
+                Vector2 reflected = Vector2.Reflect(next - inter, edgeNormal);
+
+                next = inter + reflected;
+
+                particle.previousPosition = inter;
+                particle.position = next;
+
+                return;
+            }
+        }
+
         particle.previousPosition = particle.position;
         particle.position = next;
     }
@@ -98,14 +146,14 @@ public class CPUParticleSystem : MonoBehaviour
 
     void DrawParticles()
     {
-        if (particles != null)
+        if (_particles != null)
         {
 
-            for (int i = 0; i < particles.Length; i++)
+            for (int i = 0; i < _particles.Length; i++)
             {
                 Gizmos.color = _particleColor;
 
-                Particle2D p = particles[i];
+                Particle2D p = _particles[i];
 
                 Vector2 position = p.position;
                 Vector2 previousPosition = p.previousPosition;
