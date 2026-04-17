@@ -2,7 +2,7 @@ using UnityEngine;
 
 using Random = UnityEngine.Random;
 
-public struct Particle2D
+public class Particle2D
 {
     public Vector2 position;
     public Vector2 previousPosition;
@@ -19,6 +19,7 @@ public class CPUParticleSystem : MonoBehaviour
     [SerializeField, Range(0, 100000)] int _particleCount;
     [SerializeField, Range(0.0f, 2.0f)] float _particleDrawRadius = 0.5f;
     [SerializeField] Rect _boundingRect;
+    [SerializeField, Range(0.0f, 1.0f)] float _dampening = 0.1f; 
 
     [Header("Debug Flags")]
     [SerializeField] bool _drawParticlePreviousPosition = true;
@@ -27,7 +28,6 @@ public class CPUParticleSystem : MonoBehaviour
     [SerializeField] Color _boundingRectColor = Color.grey;
     [SerializeField] Color _particleColor = Color.white;
     [SerializeField] Color _previousPositionColor = Color.white;
-
 
     Particle2D[] particles;
 
@@ -43,7 +43,10 @@ public class CPUParticleSystem : MonoBehaviour
 
     protected void FixedUpdate()
     {
-        
+        for (int i = 0; i < particles.Length; i++)
+        {
+            VerletIntegrate(particles[i]);
+        }
     }
 
     protected void OnDrawGizmos()
@@ -73,6 +76,19 @@ public class CPUParticleSystem : MonoBehaviour
 
             particles[i] = new Particle2D(pos, vel);
         }
+    }
+
+    void VerletIntegrate(Particle2D particle)
+    {
+        Vector2 current = particle.position;
+        Vector2 previous = particle.previousPosition;
+
+        Vector2 vel = (current - previous) * (1 - _dampening);
+
+        Vector2 next = current + vel;
+
+        particle.previousPosition = particle.position;
+        particle.position = next;
     }
 
     void DrawBoundingRect()
