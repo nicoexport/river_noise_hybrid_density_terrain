@@ -1,0 +1,143 @@
+#pragma kernel CSMain
+
+struct Tri
+{
+    float3 v1;
+    float3 v2;
+    float3 v3;
+};
+
+static const int3 VOXEL_CORNERS[8] =
+{
+    int3(0, 0, 0),
+    int3(1, 0, 0),
+    int3(1, 1, 0),
+    int3(0, 1, 0),
+    int3(0, 0, 1),
+    int3(1, 0, 1),
+    int3(1, 1, 1),
+    int3(0, 1, 1)
+};
+
+static const int3 CUBE_TRIS[12] =
+{
+    // front
+    int3(3, 1, 0),
+    int3(3, 2, 1),
+    // left
+    int3(3, 0, 4),
+    int3(3, 4, 7),
+    // back 
+    int3(7, 4, 5),
+    int3(7, 5, 6),
+    // right 
+    int3(2, 5, 1),
+    int3(2, 6, 5),
+    // top
+    int3(7, 2, 3),
+    int3(7, 6, 2),
+    // bottom
+    int3(4, 0, 1),
+    int3(4, 1, 5),
+};
+
+
+// The general idea would be to have one call per voxel. 
+// need to find out which chunk the voxel belongs to. 
+// to get chunk and voxel position
+
+// we assume we have a buffer that contains chunk coordinates as elements
+
+// Dispatch with the thread id and we use the id to calculate which chunk it belongs to
+// chunk has 32x32x32 voxels
+// problem when we introduce lods since the chunk can be of size NxNxN
+// maybe not a problem if we dispatch once per LOD and give the current chunk size as meta data to the dispatch
+int voxelPerChunkAxis; // this is with padding included
+
+uint activeChunkCount;
+int3 centerChunkCoord;
+
+float chunkSizeInMeter;
+float voxelSizeInMeter;
+
+StructuredBuffer<int3> activeChunkOffsetBuffer;
+AppendStructuredBuffer<Tri> triBuffer;
+
+[numthreads(64, 1, 1)]
+void CSMain(uint3 id : SV_DispatchThreadID)
+{
+    uint threadID = id.x;
+    uint voxelPerChunk = voxelPerChunkAxis * voxelPerChunkAxis * voxelPerChunkAxis;
+   
+    // guarding dispatches
+    uint totalVoxelCount = activeChunkCount * voxelPerChunk;
+    if (threadID > totalVoxelCount)
+    {
+        return;
+    }
+   
+    // which chunk the current thread belongs to 
+    uint chunkID = threadID / voxelPerChunk;
+    
+    // which voxel in current chunk is being processed
+    uint voxelID = threadID % voxelPerChunk;
+    
+    // mapping 1D voxel index to 3D coord
+    int3 voxelCoord;
+    voxelCoord.x = voxelID % voxelPerChunkAxis;
+    voxelCoord.y = (voxelID / voxelPerChunkAxis) % voxelPerChunkAxis;
+    voxelCoord.z = voxelID / (voxelPerChunkAxis * voxelPerChunkAxis);
+    
+    // subtract 1 for voxel padding since origin is in corner
+    voxelCoord.x -= 1;
+    voxelCoord.y -= 1;
+    voxelCoord.z -= 1;
+    
+    // test for now; just visualize the padding voxels 
+    // so we just return out for all other voxels
+    if (!(voxelCoord.x == -1 || voxelCoord.x == voxelPerChunkAxis - 1 - 1 - 1))
+    {
+        return;
+    }
+    if (!(voxelCoord.y == -1 || voxelCoord.y == voxelPerChunkAxis - 1 - 1 - 1))
+    {
+        return;
+    }
+    if (!(voxelCoord.z == -1 || voxelCoord.z == voxelPerChunkAxis - 1 - 1 - 1))
+    {
+        return;
+    }
+    
+    // need to append some triangle data to a buffer here
+    // cubes
+     
+    float3 chunkWorldOrigin;
+    int3 offset = activeChunkOffsetBuffer[chunkID];
+    chunkWorldOrigin = (centerChunkCoord + offset) * chunkSizeInMeter;
+    
+    // for all tris 
+    for (int i = 0; i < 12; i++)
+    {
+        float3 triIndices = CUBE_TRIS[i];
+         
+        int3 OffsetV1 = VOXEL_CORNERS[triIndices.x];
+        int3 OffsetV2 = VOXEL_CORNERS[triIndices.y];
+        int3 OffsetV3 = VOXEL_CORNERS[triIndices.z];
+        
+        int3 voxelCoordV1 = voxelCoord + OffsetV1;
+        int3 voxelCoordV2 = voxelCoord + OffsetV2;
+        int3 voxelCoordV3 = voxelCoord + OffsetV3;
+        
+        float3 worldCoordV1 = (chunkWorldOrigin + voxelCoordV1) * voxelSizeInMeter;
+        float3 worldCoordV2 = (chunkWorldOrigin + voxelCoordV2) * voxelSizeInMeter;
+        float3 worldCoordV3 = (chunkWorldOrigin + voxelCoordV3) * voxelSizeInMeter;
+        
+        Tri tri;
+        tri.v1 = worldCoordV1;
+        tri.v2 = worldCoordV2;
+        tri.v3 = worldCoordV3;
+        
+        triBuffer.Append(tri);
+
+    }
+}
